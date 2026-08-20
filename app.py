@@ -11,275 +11,214 @@ from src.rag import RAGEngine
 st.set_page_config(
     page_title="Drug Information Assistant",
     page_icon="💊",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
+# ---------------------------------------------------------------------------
+# CSS — minimal; we rely on st.container(height=) for scrollable regions
+# ---------------------------------------------------------------------------
+st.markdown("""
+<style>
+    /* Hide default top padding Streamlit adds */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 0.5rem !important;
+        max-width: 100% !important;
+    }
 
-# -------------------------
-# Title
-# -------------------------
+    /* Remove the extra gap Streamlit puts above the first element */
+    [data-testid="stAppViewBlockContainer"] > div:first-child {
+        margin-top: 0;
+    }
 
-st.title("Drug Information Assistant")
+    /* Make column wrappers stretch so panels look even */
+    [data-testid="stHorizontalBlock"] {
+        align-items: stretch;
+    }
 
-st.caption(
-    "Grounded answers from drug documentation"
-)
+    /* Panel card styling */
+    .panel-card {
+        border: 1px solid #dbe3ea;
+        border-radius: 12px;
+        padding: 0.75rem 1rem 0.6rem;
+        background: #ffffff;
+        margin-bottom: 0.5rem;
+    }
+
+    /* Tighten chat message avatars */
+    [data-testid="stChatMessage"] {
+        padding: 0.4rem 0.2rem;
+    }
+
+    /* Remove border from st.container(height=) scrollable box */
+    [data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlock"] {
+        gap: 0.4rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 
-# -------------------------
-# Build RAG engine
-# -------------------------
+# ---------------------------------------------------------------------------
+# Constants — tune these to match your screen / header size
+# ---------------------------------------------------------------------------
+PANEL_HEIGHT = 560                # px — chat messages scroll area
+SOURCES_RETRIEVED_HEIGHT = 460    # px — retrieved chunks scroll area
+
+
+# ---------------------------------------------------------------------------
+# RAG engine builder
+# ---------------------------------------------------------------------------
 
 @st.cache_resource
 def build_engine(pdf_path):
-
     pages = extract_pdf_pages(pdf_path)
-
     chunks = chunk_pages(pages)
-
-    texts = [
-        chunk["text"]
-        for chunk in chunks
-    ]
-
+    texts = [chunk["text"] for chunk in chunks]
     embeddings = create_embeddings(texts)
-
     vector_store = VectorStore()
-
-    vector_store.build(
-        embeddings,
-        chunks
-    )
-
-    return RAGEngine(
-        vector_store,
-        chunks
-    )
+    vector_store.build(embeddings, chunks)
+    return RAGEngine(vector_store, chunks)
 
 
-# -------------------------
+# ---------------------------------------------------------------------------
 # Session state
-# -------------------------
+# ---------------------------------------------------------------------------
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-if "sources" not in st.session_state:
-    st.session_state.sources = []
-
-if "engine" not in st.session_state:
-    st.session_state.engine = None
-
-if "document_name" not in st.session_state:
-    st.session_state.document_name = None
+for key, default in [
+    ("messages", []),
+    ("sources", []),
+    ("engine", None),
+    ("document_name", None),
+    ("show_uploader", False),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 
-# -------------------------
-# Upload
-# -------------------------
+# ---------------------------------------------------------------------------
+# Header
+# ---------------------------------------------------------------------------
 
-uploaded_file = st.file_uploader(
-    "Upload drug documentation",
-    type=["pdf"]
-)
+st.title("💊 Drug Information Assistant")
+st.caption("Grounded answers from drug documentation")
 
+# ---------------------------------------------------------------------------
+# Main layout  —  Sources (left)  |  Chat (right)
+# ---------------------------------------------------------------------------
 
-if uploaded_file:
-
-    os.makedirs(
-        "storage",
-        exist_ok=True
-    )
-
-    pdf_path = os.path.join(
-        "storage",
-        uploaded_file.name
-    )
-
-    # Avoid processing same document repeatedly
-    if (
-        st.session_state.document_name
-        != uploaded_file.name
-    ):
-
-        with open(pdf_path, "wb") as f:
-            f.write(
-                uploaded_file.getbuffer()
-            )
-
-        with st.spinner(
-            "Processing document..."
-        ):
-
-            st.session_state.engine = (
-                build_engine(pdf_path)
-            )
-
-        st.session_state.document_name = (
-            uploaded_file.name
-        )
-
-        st.session_state.messages = []
-        st.session_state.sources = []
-
-        st.success(
-            "Document processed successfully."
-        )
+sources_col, chat_col = st.columns([1, 1.8], gap="large")
 
 
-# -------------------------
-# Main layout
-# -------------------------
-
-left_col, right_col = st.columns(
-    [1, 2.3],
-    gap="large"
-)
-
-
-# ==================================================
+# ══════════════════════════════════════════════════════════════
 # LEFT — SOURCES
-# ==================================================
+# ══════════════════════════════════════════════════════════════
 
-with left_col:
+with sources_col:
+    # Header row: title + "Add source" button side by side
+    title_col, btn_col = st.columns([2, 1])
+    with title_col:
+        st.markdown("### Sources")
+    with btn_col:
+        st.markdown("<div style='padding-top:0.6rem'>", unsafe_allow_html=True)
+        if st.button("＋ Add source", use_container_width=True):
+            st.session_state.show_uploader = not st.session_state.show_uploader
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.subheader("Sources")
+    # Inline uploader — toggled by the button
+    if st.session_state.show_uploader:
+        uploaded_file = st.file_uploader(
+            "Upload drug documentation (PDF)",
+            type=["pdf"],
+            label_visibility="collapsed",
+        )
+        if uploaded_file:
+            os.makedirs("storage", exist_ok=True)
+            pdf_path = os.path.join("storage", uploaded_file.name)
 
+            if st.session_state.document_name != uploaded_file.name:
+                with open(pdf_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+
+                with st.spinner("Processing document…"):
+                    st.session_state.engine = build_engine(pdf_path)
+
+                st.session_state.document_name = uploaded_file.name
+                st.session_state.messages = []
+                st.session_state.sources = []
+                st.session_state.show_uploader = False
+                st.success("Document processed successfully.")
+                st.rerun()
+
+    # Uploaded document pill
     if st.session_state.document_name:
-
-        st.caption(
-            st.session_state.document_name
-        )
-
-    if not st.session_state.sources:
-
-        st.info(
-            "Sources used for the latest answer "
-            "will appear here."
-        )
-
+        st.markdown(f"📄 `{st.session_state.document_name}`")
     else:
+        st.caption("No document added yet.")
 
-        for i, source in enumerate(
-            st.session_state.sources,
-            start=1
-        ):
+    st.markdown("**Retrieved evidence**")
 
-            st.markdown(
-                f"### Source {i}"
-            )
-
-            st.write(
-                f"**Page:** {source['page']}"
-            )
-
-            section = source.get(
-                "section",
-                "Unknown"
-            )
-
-            if section != "Unknown":
-
-                st.write(
-                    f"**Section:** {section}"
-                )
-
-            # Evidence text
-            if source.get("text"):
-
-                with st.expander(
-                    "View evidence",
-                    expanded=i == 1
-                ):
-
-                    st.write(
-                        source["text"]
-                    )
-
-            st.divider()
+    # Scrollable container for retrieved chunks
+    with st.container(height=SOURCES_RETRIEVED_HEIGHT, border=True):
+        if not st.session_state.sources:
+            st.info("Evidence chunks will appear here after each response.")
+        else:
+            for i, source in enumerate(st.session_state.sources, start=1):
+                with st.container(border=True):
+                    st.markdown(f"**Source {i}** · Page {source['page']}")
+                    if source.get("section"):
+                        st.caption(source["section"])
+                    with st.expander("View text"):
+                        st.write(source["text"])
 
 
-# ==================================================
+# ══════════════════════════════════════════════════════════════
 # RIGHT — CHAT
-# ==================================================
+# ══════════════════════════════════════════════════════════════
 
-with right_col:
+with chat_col:
+    st.markdown("### Chat")
 
-    st.subheader("Chat")
+    # Scrollable message history — fixed height, never grows
+    with st.container(height=PANEL_HEIGHT, border=True):
+        if st.session_state.engine is None:
+            st.info("Click **＋ Add source** in the Sources panel to upload a document.")
+        else:
+            if not st.session_state.messages:
+                st.caption("Ask a question below to get started.")
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
 
-    if (
-        st.session_state.engine
-        is None
-    ):
-
-        st.info(
-            "Upload a drug document to begin."
+    # Input bar — always below the scrollable box
+    with st.form(key="chat_form", clear_on_submit=True):
+        question = st.text_input(
+            "Ask a question",
+            placeholder="Ask a question about the uploaded document…",
+            label_visibility="collapsed",
+            disabled=(st.session_state.engine is None),
         )
-
-    else:
-
-        # Previous messages
-        for message in (
-            st.session_state.messages
-        ):
-
-            with st.chat_message(
-                message["role"]
-            ):
-
-                st.markdown(
-                    message["content"]
-                )
-
-
-        question = st.chat_input(
-            "Ask about the uploaded document..."
+        submitted = st.form_submit_button(
+            "Send",
+            use_container_width=True,
+            disabled=(st.session_state.engine is None),
         )
 
 
-        if question:
+# ---------------------------------------------------------------------------
+# Handle submission
+# ---------------------------------------------------------------------------
 
-            # Store user message
-            st.session_state.messages.append({
-                "role": "user",
-                "content": question
-            })
+if submitted and question and st.session_state.engine is not None:
+    st.session_state.messages.append({"role": "user", "content": question})
 
-            with st.chat_message("user"):
+    with st.spinner("Searching the document…"):
+        result = st.session_state.engine.ask(question)
 
-                st.markdown(question)
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": result["answer"],
+    })
 
-
-            # Generate response
-            with st.chat_message(
-                "assistant"
-            ):
-
-                with st.spinner(
-                    "Searching documentation..."
-                ):
-
-                    result = (
-                        st.session_state
-                        .engine
-                        .ask(question)
-                    )
-
-                answer = result["answer"]
-
-                st.markdown(answer)
-
-
-            # Store assistant response
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": answer
-            })
-
-
-            # Update LEFT panel
-            st.session_state.sources = (
-                result["sources"]
-            )
-
-            st.rerun()
+    st.session_state.sources = result["sources"]
+    st.rerun()
