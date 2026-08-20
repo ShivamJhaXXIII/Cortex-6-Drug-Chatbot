@@ -45,7 +45,8 @@ class RAGEngine:
                 "section": result.get(
                     "section",
                     "Unknown"
-                )
+                ),
+                "text": result["text"]
             })
 
         return {
