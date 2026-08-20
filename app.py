@@ -1,4 +1,5 @@
 import os
+import hashlib
 import streamlit as st
 
 from src.ingestion import extract_pdf_pages
@@ -71,8 +72,8 @@ SOURCES_RETRIEVED_HEIGHT = 460    # px — retrieved chunks scroll area
 # ---------------------------------------------------------------------------
 
 @st.cache_resource
-def build_engine(pdf_path):
-    pages = extract_pdf_pages(pdf_path)
+def build_engine(pdf_paths):
+    pages = extract_pdf_pages(pdf_paths)
     chunks = chunk_pages(pages)
     texts = [chunk["text"] for chunk in chunks]
     embeddings = create_embeddings(texts)
@@ -89,7 +90,8 @@ for key, default in [
     ("messages", []),
     ("sources", []),
     ("engine", None),
-    ("document_name", None),
+    ("document_names", []),
+    ("document_signature", None),
     ("show_uploader", False),
 ]:
     if key not in st.session_state:
@@ -127,32 +129,48 @@ with sources_col:
 
     # Inline uploader — toggled by the button
     if st.session_state.show_uploader:
-        uploaded_file = st.file_uploader(
+        uploaded_files = st.file_uploader(
             "Upload drug documentation (PDF)",
             type=["pdf"],
+            accept_multiple_files=True,
             label_visibility="collapsed",
         )
-        if uploaded_file:
+        if uploaded_files:
             os.makedirs("storage", exist_ok=True)
-            pdf_path = os.path.join("storage", uploaded_file.name)
+            uploaded_names = [os.path.basename(uploaded_file.name) for uploaded_file in uploaded_files]
+            uploaded_contents = [uploaded_file.getvalue() for uploaded_file in uploaded_files]
+            document_signature = tuple(
+                (name, hashlib.sha256(content).hexdigest())
+                for name, content in zip(uploaded_names, uploaded_contents)
+            )
 
-            if st.session_state.document_name != uploaded_file.name:
-                with open(pdf_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+            if st.session_state.document_signature != document_signature:
+                pdf_paths = []
+                for index, (uploaded_file, name, content) in enumerate(
+                    zip(uploaded_files, uploaded_names, uploaded_contents),
+                    start=1,
+                ):
+                    file_hash = document_signature[index - 1][1][:12]
+                    pdf_path = os.path.join("storage", f"{file_hash}_{index}_{name}")
+                    with open(pdf_path, "wb") as f:
+                        f.write(content)
+                    pdf_paths.append(pdf_path)
 
-                with st.spinner("Processing document…"):
-                    st.session_state.engine = build_engine(pdf_path)
+                with st.spinner("Processing documents…"):
+                    st.session_state.engine = build_engine(tuple(pdf_paths))
 
-                st.session_state.document_name = uploaded_file.name
+                st.session_state.document_names = uploaded_names
+                st.session_state.document_signature = document_signature
                 st.session_state.messages = []
                 st.session_state.sources = []
                 st.session_state.show_uploader = False
-                st.success("Document processed successfully.")
+                st.success(f"Processed {len(uploaded_files)} document(s) successfully.")
                 st.rerun()
 
-    # Uploaded document pill
-    if st.session_state.document_name:
-        st.markdown(f"📄 `{st.session_state.document_name}`")
+    # Uploaded document list
+    if st.session_state.document_names:
+        for document_name in st.session_state.document_names:
+            st.markdown(f"📄 `{document_name}`")
     else:
         st.caption("No document added yet.")
 
@@ -165,7 +183,9 @@ with sources_col:
         else:
             for i, source in enumerate(st.session_state.sources, start=1):
                 with st.container(border=True):
-                    st.markdown(f"**Source {i}** · Page {source['page']}")
+                    st.markdown(
+                        f"**Source {i}** · `{source['document']}` · Page {source['page']}"
+                    )
                     if source.get("section"):
                         st.caption(source["section"])
                     with st.expander("View text"):
@@ -182,7 +202,7 @@ with chat_col:
     # Scrollable message history — fixed height, never grows
     with st.container(height=PANEL_HEIGHT, border=True):
         if st.session_state.engine is None:
-            st.info("Click **＋ Add source** in the Sources panel to upload a document.")
+            st.info("Click **＋ Add source** in the Sources panel to upload documents.")
         else:
             if not st.session_state.messages:
                 st.caption("Ask a question below to get started.")
@@ -194,7 +214,7 @@ with chat_col:
     with st.form(key="chat_form", clear_on_submit=True):
         question = st.text_input(
             "Ask a question",
-            placeholder="Ask a question about the uploaded document…",
+            placeholder="Ask a question about the uploaded documents…",
             label_visibility="collapsed",
             disabled=(st.session_state.engine is None),
         )

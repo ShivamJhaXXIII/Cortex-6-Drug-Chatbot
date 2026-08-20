@@ -58,9 +58,9 @@ Streamlit will print a local URL, usually `http://localhost:8501`. Open that URL
 ## Use the chatbot
 
 1. Click **Add source**.
-2. Upload a drug documentation PDF.
-3. Wait for the document to finish processing.
-4. Ask a question about the uploaded document.
+2. Upload one or more drug documentation PDFs.
+3. Wait for the documents to finish processing into one searchable collection.
+4. Ask a question about the uploaded documents.
 5. Review the retrieved evidence shown in the **Sources** panel.
 
 The first run may take longer because the `all-MiniLM-L6-v2` embedding model is downloaded and cached locally. Uploaded PDFs and generated indexes are stored in `storage/`, which is intentionally not tracked by Git.

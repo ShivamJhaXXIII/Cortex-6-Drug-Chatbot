@@ -3,7 +3,7 @@ from src.hybrid_retrieval import retrieve_hybrid
 from src.chunking import chunk_pages
 from src.llm import generate_answer, build_context
 from src.vector_store import VectorStore
-from src.embeddings import create_emebeddings
+from src.embeddings import create_embeddings
 
 PDF_PATH = "data/Ozempic.pdf"
 
@@ -22,7 +22,7 @@ print("chunks created: ", l)
 # 3 create embeddings for chunks
 texts = [chunk["text"] for chunk in chunks]
 
-embed = create_emebeddings(texts)
+embed = create_embeddings(texts)
 
 print("embeddings shape: ", embed.shape)
 
