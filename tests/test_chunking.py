@@ -15,15 +15,14 @@ chunks = chunk_pages(pages)
 print("Chunks:", len(chunks))
 
 
-print("\nFirst 5 chunks:")
+for i, chunk in enumerate(chunks):
 
-for i, chunk in enumerate(chunks[:5]):
+    if chunk["section"] != "Unknown":
 
-    print("\n--------------------")
-
-    print("Chunk:", i + 1)
-    print("Document:", chunk["document"])
-    print("Page:", chunk["page"])
-    print("Characters:", len(chunk["text"]))
-
-    print(chunk["text"][:300])
+        print(
+            i + 1,
+            "| Page:",
+            chunk["page"],
+            "| Section:",
+            chunk["section"]
+        )

@@ -21,7 +21,7 @@ def extract_pdf_pages(pdf_path: str):
 
     for page_number in range(document.page_count):
         page = document.load_page(page_number)
-        text = str(page.get_text())
+        text = str(page.get_text("text", sort=True))
         if text.strip(): # Only include pages with text
             pages.append(
                 {

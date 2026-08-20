@@ -9,12 +9,8 @@ class VectorStore:
     def build(self, embeddings, chunks):
         embeddings = np.array(embeddings, dtype="float32")
         
-        # Ensure 2D array shape (N, dimension)
-        if embeddings.ndim == 1:
-            embeddings = np.expand_dims(embeddings, axis=0)
-
         dimension = embeddings.shape[1]
-        self.index = faiss.IndexFlatL2(dimension)
+        self.index = faiss.IndexFlatIP(dimension)
         self.index.add(embeddings)
         self.chunks = chunks
 

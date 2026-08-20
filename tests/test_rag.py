@@ -1,5 +1,5 @@
 from src.ingestion import extract_pdf_pages
-from src.retrieval import retrieve
+from src.hybrid_retrieval import retrieve_hybrid
 from src.chunking import chunk_pages
 from src.llm import generate_answer, build_context
 from src.vector_store import VectorStore
@@ -13,7 +13,7 @@ pages = extract_pdf_pages(PDF_PATH)
 print("pages extracted from pdf: ", len(pages))
 
 # 2 chunk pages into smaller pieces
-chunks = chunk_pages(pages, chunk_size=1000, overlap=150)
+chunks = chunk_pages(pages, chunk_size=1000)
 l=0
 if chunks:
     l = len(chunks)
@@ -36,7 +36,7 @@ question = input("\nEnter your question: ")
 
 # 6 retrieve 
 
-res = retrieve(question, vector_store, top_k=5)
+res = retrieve_hybrid(question, vector_store, chunks, top_k=5)
 
 print("\n retrieved sources: ", len(res))
 
