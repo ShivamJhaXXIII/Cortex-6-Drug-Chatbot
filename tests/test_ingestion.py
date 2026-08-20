@@ -1,14 +1,36 @@
+from src.chunking import chunk_pages
 from src.ingestion import extract_pdf_pages
+import fitz
 
 
-pdf_path = "data/Ozempic.pdf"
+PDF_PATH = "data/Ozempic.pdf"
 
-pages = extract_pdf_pages(pdf_path)
+doc = fitz.open(PDF_PATH)
 
-print("Number of pages extracted:", len(pages))
+print("TOTAL PDF PAGES:", len(doc))
+print("\nPAGE TEXT LENGTHS:")
 
-for page in pages[:2]:
-    print("\n--------------------")
-    print("Document:", page["document"])
-    print("Page:", page["page"])
-    print(page["text"][:1000])
+for i, page in enumerate(doc, start=1):
+    text = page.get_text("text")
+
+    print(
+        f"Page {i:02d}: "
+        f"{len(text.strip()):5d} characters"
+    )
+
+doc.close()
+
+
+pages = extract_pdf_pages(PDF_PATH)
+print("Extracted pages:", len(pages))
+
+for page in pages[:10]:
+    print(
+        page["page"],
+        len(page["text"])
+    )
+
+chunks = chunk_pages(pages)
+print("total chunks: ",len(chunks))
+
+print("\nEXTRACTED PAGES:", len(pages))
