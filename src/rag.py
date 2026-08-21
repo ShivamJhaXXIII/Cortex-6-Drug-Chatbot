@@ -1,21 +1,26 @@
 from src.hybrid_retrieval import retrieve_hybrid
-from src.llm import generate_answer, build_context
+from src.llm import generate_answer, build_context, rewrite_query
+from groq import Groq
+import streamlit as st
 
 class RAGEngine:
 
-    def __init__(self, vector_store, chunks):
+    def __init__(self, vector_store):
 
         self.vector_store = vector_store
-        self.chunks = chunks
+        self.groq_client = Groq(api_key=st.secrets["API_KEY"])
+        self.model = "openai/gpt-oss-120b"
 
-    def ask(self, question):
+    def ask(self, question, history=None):
+        history = history or []
+        if history:
+            question = rewrite_query(question, history, self.groq_client, self.model)
 
         results = retrieve_hybrid(
             question,
             self.vector_store,
-            self.chunks,
-            top_k=3,
-            candidate_k=10
+            top_k=5,
+            candidate_k=15
         )
 
         if not results:
@@ -32,7 +37,8 @@ class RAGEngine:
 
         answer = generate_answer(
             question,
-            context
+            context,
+            history
         )
 
         sources = []
@@ -42,10 +48,7 @@ class RAGEngine:
             sources.append({
                 "document": result["document"],
                 "page": result["page"],
-                "section": result.get(
-                    "section",
-                    "Unknown"
-                ),
+                "section": result["section"],
                 "text": result["text"]
             })
 

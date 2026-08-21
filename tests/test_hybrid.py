@@ -58,7 +58,6 @@ for question in questions:
     results = retrieve_hybrid(
         question,
         vector_store,
-        chunks,
         top_k=5,
         candidate_k=15
     )

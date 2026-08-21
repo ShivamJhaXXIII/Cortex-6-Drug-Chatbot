@@ -30,6 +30,26 @@ STOP_WORDS = {
 }
 
 
+def is_multi_source_question(question):
+    """Return whether a question asks to compare multiple sources."""
+    question = question.lower()
+
+    comparison_terms = [
+        "compare",
+        "comparison",
+        "difference",
+        "differences",
+        "versus",
+        "vs",
+        "both",
+        "each",
+        "between",
+        "respectively",
+    ]
+
+    return any(term in question for term in comparison_terms)
+
+
 def tokenize(text):
     """
     Convert text into a simple set of lowercase alphanumeric tokens.
@@ -70,7 +90,6 @@ def keyword_score(question_tokens, chunk):
 def retrieve_hybrid(
     question,
     vector_store,
-    chunks,
     top_k=5,
     candidate_k=15,
     semantic_weight=0.65,
@@ -84,7 +103,6 @@ def retrieve_hybrid(
     Args:
         question (str): The search query.
         vector_store (VectorStore): The vector database interface.
-        chunks (list): List of all document chunks.
         top_k (int): Number of final results to return.
         candidate_k (int): Number of candidate chunks to fetch initially via semantic search.
         semantic_weight (float): Weighted importance of the dense embedding score.
@@ -109,6 +127,10 @@ def retrieve_hybrid(
     # -------------------------
     # Embed the query string
     query_embedding = create_embeddings([question])[0]
+
+    # Comparison questions need a wider pool so multiple documents can contribute.
+    if is_multi_source_question(question):
+        candidate_k = max(candidate_k, top_k * 3)
 
     # Fetch top semantic candidates using cosine similarity (via FlatIP)
     semantic_results = vector_store.search(
@@ -152,6 +174,7 @@ def retrieve_hybrid(
 
         # Create a new dictionary result with individual scores included
         result_copy = result.copy()
+        result_copy["section"] = result.get("section", "Unknown")
         result_copy["semantic_score"] = semantic
         result_copy["keyword_score"] = lexical
         result_copy["combined_score"] = combined
@@ -168,4 +191,56 @@ def retrieve_hybrid(
     )
 
     # Return top K sorted results
-    return scored_results[:top_k]
+    return select_balanced_results(
+        scored_results,
+        top_k=top_k
+    )
+
+def select_balanced_results(
+    results,
+    top_k=6
+):
+    """
+    Select evidence while giving each document
+    a chance to contribute.
+    """
+
+    selected = []
+
+    documents = []
+
+    for result in results:
+
+        document = result["document"]
+
+        if document not in documents:
+            documents.append(document)
+
+    # First: take the best result from each document
+    for document in documents:
+
+        for result in results:
+
+            if (
+                result["document"] == document
+            ):
+
+                selected.append(result)
+                break
+
+    # Second: fill remaining slots by score
+    for result in results:
+
+        if len(selected) >= top_k:
+            break
+
+        if result not in selected:
+            selected.append(result)
+
+    # Final ordering by score
+    selected.sort(
+        key=lambda x: x["combined_score"],
+        reverse=True
+    )
+
+    return selected[:top_k]

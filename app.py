@@ -7,6 +7,7 @@ from src.chunking import chunk_pages
 from src.embeddings import create_embeddings
 from src.vector_store import VectorStore
 from src.rag import RAGEngine
+from src.web_ingestion import fetch_official_source
 
 
 st.set_page_config(
@@ -79,7 +80,48 @@ def build_engine(pdf_paths):
     embeddings = create_embeddings(texts)
     vector_store = VectorStore()
     vector_store.build(embeddings, chunks)
-    return RAGEngine(vector_store, chunks)
+    return RAGEngine(vector_store)
+
+
+def rebuild_engine_from_documents(uploaded_documents):
+    document_signature = tuple(
+        (document["name"], document["hash"])
+        for document in uploaded_documents
+    )
+
+    if st.session_state.document_signature == document_signature:
+        return False
+
+    pdf_paths = []
+    for index, document in enumerate(
+        uploaded_documents,
+        start=1,
+    ):
+        pdf_path = os.path.join(
+            "storage",
+            f"{document['hash'][:12]}_{index}_{document['name']}",
+        )
+        with open(pdf_path, "wb") as f:
+            f.write(document["content"])
+        pdf_paths.append(pdf_path)
+
+    with st.spinner("Processing documents…"):
+        st.session_state.engine = build_engine(tuple(pdf_paths))
+
+    st.session_state.uploaded_documents = uploaded_documents
+    st.session_state.document_names = [
+        document["name"] for document in uploaded_documents
+    ]
+    st.session_state.document_signature = document_signature
+    st.session_state.messages = []
+    st.session_state.sources = []
+    st.session_state.show_uploader = False
+    st.success(
+        f"Processed {len(uploaded_documents)} document(s) successfully."
+    )
+    st.rerun()
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +133,7 @@ for key, default in [
     ("sources", []),
     ("engine", None),
     ("document_names", []),
+    ("uploaded_documents", []),
     ("document_signature", None),
     ("show_uploader", False),
 ]:
@@ -135,37 +178,67 @@ with sources_col:
             accept_multiple_files=True,
             label_visibility="collapsed",
         )
-        if uploaded_files:
-            os.makedirs("storage", exist_ok=True)
-            uploaded_names = [os.path.basename(uploaded_file.name) for uploaded_file in uploaded_files]
-            uploaded_contents = [uploaded_file.getvalue() for uploaded_file in uploaded_files]
-            document_signature = tuple(
-                (name, hashlib.sha256(content).hexdigest())
-                for name, content in zip(uploaded_names, uploaded_contents)
+
+        st.subheader("Add source")
+        source_type = st.radio(
+            "Source type",
+            ["Upload PDF", "Official URL"],
+            horizontal=True,
+            key="source_type_selector",
+        )
+
+        if source_type == "Official URL":
+            url = st.text_input(
+                "Official drug documentation URL",
+                placeholder="https://dailymed.nlm.nih.gov/..."
             )
 
-            if st.session_state.document_signature != document_signature:
-                pdf_paths = []
-                for index, (uploaded_file, name, content) in enumerate(
-                    zip(uploaded_files, uploaded_names, uploaded_contents),
-                    start=1,
-                ):
-                    file_hash = document_signature[index - 1][1][:12]
-                    pdf_path = os.path.join("storage", f"{file_hash}_{index}_{name}")
-                    with open(pdf_path, "wb") as f:
-                        f.write(content)
-                    pdf_paths.append(pdf_path)
+            add_url = st.button(
+                "Add source",
+                key="add_official_url_source"
+            )
 
-                with st.spinner("Processing documents…"):
-                    st.session_state.engine = build_engine(tuple(pdf_paths))
+            if add_url and url:
+                try:
+                    with st.spinner("Fetching official document..."):
+                        pdf_path = fetch_official_source(url)
 
-                st.session_state.document_names = uploaded_names
-                st.session_state.document_signature = document_signature
-                st.session_state.messages = []
-                st.session_state.sources = []
-                st.session_state.show_uploader = False
-                st.success(f"Processed {len(uploaded_files)} document(s) successfully.")
-                st.rerun()
+                    with open(pdf_path, "rb") as f:
+                        content = f.read()
+
+                    file_hash = hashlib.sha256(content).hexdigest()
+                    uploaded_documents = list(st.session_state.uploaded_documents)
+                    known_hashes = {document["hash"] for document in uploaded_documents}
+
+                    if file_hash in known_hashes:
+                        st.info("This source is already added.")
+                    else:
+                        uploaded_documents.append({
+                            "name": os.path.basename(pdf_path),
+                            "content": content,
+                            "hash": file_hash,
+                        })
+                        rebuild_engine_from_documents(uploaded_documents)
+                except Exception as exc:
+                    st.error(f"Could not add source: {exc}")
+
+        if uploaded_files:
+            os.makedirs("storage", exist_ok=True)
+            uploaded_documents = list(st.session_state.uploaded_documents)
+            known_hashes = {document["hash"] for document in uploaded_documents}
+
+            for uploaded_file in uploaded_files:
+                content = uploaded_file.getvalue()
+                file_hash = hashlib.sha256(content).hexdigest()
+                if file_hash not in known_hashes:
+                    uploaded_documents.append({
+                        "name": os.path.basename(uploaded_file.name),
+                        "content": content,
+                        "hash": file_hash,
+                    })
+                    known_hashes.add(file_hash)
+
+            rebuild_engine_from_documents(uploaded_documents)
 
     # Uploaded document list
     if st.session_state.document_names:
@@ -233,7 +306,10 @@ if submitted and question and st.session_state.engine is not None:
     st.session_state.messages.append({"role": "user", "content": question})
 
     with st.spinner("Searching the document…"):
-        result = st.session_state.engine.ask(question)
+        result = st.session_state.engine.ask(
+            question,
+            st.session_state.messages[:-1]
+        )
 
     st.session_state.messages.append({
         "role": "assistant",

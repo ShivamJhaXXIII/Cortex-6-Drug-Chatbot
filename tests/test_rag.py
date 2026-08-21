@@ -36,7 +36,7 @@ question = input("\nEnter your question: ")
 
 # 6 retrieve 
 
-res = retrieve_hybrid(question, vector_store, chunks, top_k=5)
+res = retrieve_hybrid(question, vector_store, top_k=5)
 
 print("\n retrieved sources: ", len(res))
 
