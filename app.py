@@ -97,12 +97,16 @@ def rebuild_engine_from_documents(uploaded_documents):
         uploaded_documents,
         start=1,
     ):
-        pdf_path = os.path.join(
-            "storage",
-            f"{document['hash'][:12]}_{index}_{document['name']}",
-        )
-        with open(pdf_path, "wb") as f:
-            f.write(document["content"])
+        existing_path = document.get("path")
+        if existing_path and os.path.exists(existing_path):
+            pdf_path = existing_path
+        else:
+            pdf_path = os.path.join(
+                "storage",
+                f"{document['hash'][:12]}_{index}_{document['name']}",
+            )
+            with open(pdf_path, "wb") as f:
+                f.write(document["content"])
         pdf_paths.append(pdf_path)
 
     with st.spinner("Processing documents…"):
@@ -217,6 +221,7 @@ with sources_col:
                             "name": os.path.basename(pdf_path),
                             "content": content,
                             "hash": file_hash,
+                            "path": pdf_path,
                         })
                         rebuild_engine_from_documents(uploaded_documents)
                 except Exception as exc:
